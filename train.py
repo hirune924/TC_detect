@@ -36,9 +36,7 @@ def max_pool_2x2(x):
                         strides=[1, 2, 2, 1], padding='SAME')
 
 
-def model(images, labels, test_images, test_labels, is_Train):
-    images = tf.cond(tf.equal(is_Train, False),lambda: test_images, lambda: images)
-    labels = tf.cond(tf.equal(is_Train, False),lambda: test_labels, lambda: labels)
+def model(images, labels):
     # ニューラルネットワークを計算グラフで作成する 
     # 形状変更
     const1 = tf.constant(255, tf.float32)
@@ -94,48 +92,64 @@ def main():
     #train_op = model(train_images, train_labels)
     TC_list = glob.glob('03_TFrecord/TC/*')
     nonTC_list = glob.glob('03_TFrecord/nonTC/*')
-    train_dataset = tf.data.TFRecordDataset(TC_list[:13])\
+    train_TC_dataset = tf.data.TFRecordDataset(TC_list[:13])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(4)\
+        .shuffle(1000)\
         .batch(64)\
         .repeat()
-    train_non_dataset = tf.data.TFRecordDataset(nonTC_list[:13])\
+    train_nonTC_dataset = tf.data.TFRecordDataset(nonTC_list[:13])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(4)\
+        .shuffle(1000)\
         .batch(64)\
         .repeat()
     
-    test_dataset = tf.data.TFRecordDataset(TC_list[14:])\
+    #train_dataset = tf.data.Dataset.zip((train_TC_dataset, train_nonTC_dataset))
+
+    test_TC_dataset = tf.data.TFRecordDataset(TC_list[14:])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(4)\
+        .shuffle(1000)\
         .batch(64)\
         .repeat()
-    test_non_dataset = tf.data.TFRecordDataset(nonTC_list[14:])\
+    test_nonTC_dataset = tf.data.TFRecordDataset(nonTC_list[14:])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(4)\
+        .shuffle(1000)\
         .batch(64)\
         .repeat()
 
-    train_iterator = train_dataset.make_one_shot_iterator()
-    train_non_iterator = train_non_dataset.make_one_shot_iterator()
+    #test_dataset = tf.data.Dataset.zip((test_nonTC_dataset, test_TC_dataset))
 
-    test_iterator = test_dataset.make_one_shot_iterator()
-    test_non_iterator = test_non_dataset.make_one_shot_iterator()
+    TC_iterator = tf.data.Iterator.from_structure(train_TC_dataset.output_types,
+                                           train_TC_dataset.output_shapes)
+    nonTC_iterator = tf.data.Iterator.from_structure(train_nonTC_dataset.output_types,
+                                           train_nonTC_dataset.output_shapes)
 
-    img, label = train_iterator.get_next()
-    non_img, non_label = train_non_iterator.get_next()
 
-    test_img, test_label = test_iterator.get_next()
-    test_non_img, test_non_label = test_non_iterator.get_next()
+
+    #train_iterator = train_dataset.make_one_shot_iterator()
+    #train_non_iterator = train_non_dataset.make_one_shot_iterator()
+
+    #test_iterator = test_dataset.make_one_shot_iterator()
+    #test_non_iterator = test_non_dataset.make_one_shot_iterator()
+
+    TC_images, TC_labels = TC_iterator.get_next()
+    nonTC_images, nonTC_labels = nonTC_iterator.get_next()
+
+    train_TC_init_op = TC_iterator.make_initializer(train_TC_dataset)
+    test_TC_init_op = TC_iterator.make_initializer(test_TC_dataset)
+
+    train_nonTC_init_op = nonTC_iterator.make_initializer(train_nonTC_dataset)
+    test_nonTC_init_op = nonTC_iterator.make_initializer(test_nonTC_dataset)
+    #non_img, non_label = train_non_iterator.get_next()
+
+    #test_img, test_label = test_iterator.get_next()
+    #test_non_img, test_non_label = test_non_iterator.get_next()
 
     # 初期化を行うための計算グラフを作成する。
-    is_Train = tf.placeholder(dtype=tf.bool)
-    train_op, acc = model(tf.concat([img,non_img],0), tf.concat([label,non_label],0),\
-            tf.concat([test_non_img,test_img],0), tf.concat([test_non_label,test_label],0), is_Train)
+    train_op, acc = model(tf.concat([TC_images, nonTC_images],0), tf.concat([TC_labels, nonTC_labels],0))
     #train_op, acc = model(tf.concat([img,non_img],0), tf.concat([label,non_label],0))
     #_, test_acc = model(tf.concat([test_non_img,test_img],0), tf.concat([test_non_label,test_label],0))
     init_op = tf.global_variables_initializer()
@@ -143,15 +157,17 @@ def main():
     step = 0
     with tf.Session() as sess:
         sess.run(init_op)
-        while step < 30000:
-            _, accuracy = sess.run([train_op,acc],\
-                    feed_dict={is_Train: True})
+        for epoch in range(100):
+            sess.run(train_TC_init_op)
+            sess.run(train_nonTC_init_op)
+            for step in range(300):
+                _, accuracy = sess.run([train_op,acc])
 
-            if step % 300 == 0:
-                test_accuracy = sess.run(acc,\
-                        feed_dict={is_Train: False})
-                print('step: {}, accuracy: {}, test_accuracy: {}'.format(step, accuracy, test_accuracy))
-            step += 1
+            sess.run(test_TC_init_op)
+            sess.run(test_nonTC_init_op)
+            test_accuracy = sess.run(acc)
+            print('step: {}, accuracy: {}, test_accuracy: {}'.format(step+1+epoch*300, accuracy, test_accuracy))
+
         saver.save(sess, "./ckpt/model.ckpt")
 
 
