@@ -25,3 +25,4 @@ image ,label = sess.run([images,labels])
 
 print(len(image[0]))
 print(image[0])
+print(image[0]*255)
