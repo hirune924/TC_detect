@@ -7,6 +7,9 @@ import os
 import tensorflow as tf
 from PIL import Image
 import numpy as np
+import vgg
+
+slim = tf.contrib.slim
 
 def parse_function(example_proto):
     features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
@@ -16,7 +19,7 @@ def parse_function(example_proto):
 
 
 def read_image(image_raw, label):
-    image = tf.decode_raw(image_raw, tf.uint8)
+    image = tf.decode_raw(image_raw, tf.float32)
     return image, label
 
 
@@ -39,41 +42,52 @@ def max_pool_2x2(x):
 def model(images, labels):
     # ニューラルネットワークを計算グラフで作成する 
     # 形状変更
-    const1 = tf.constant(255, tf.float32)
-    reshape_image = tf.reshape(tf.cast(images, tf.float32), [-1, 64, 64, 1])
-    x_image = tf.divide(reshape_image, const1)
+    #const1 = tf.constant(255, tf.float32)
+    x_image = tf.reshape(tf.cast(images, tf.float32), [-1, 64, 64, 1])
+    #x_image = tf.divide(reshape_image, const1)
+    x_image = tf.image.resize_images(x_image,[224,224])
+    #x_image = tf.image.grayscale_to_rgb(x_image)
 
-    # 第2層 (畳み込み層)
-    W_conv1 = weight_variable([5, 5, 1, 32])
-    b_conv1 = bias_variable([32])
-    y_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
-     
-    # 第3層 (プーリング層)
-    y_pool1 = max_pool_2x2(y_conv1)
-     
-    # 第4層 (畳み込み層)
-    W_conv2 = weight_variable([5, 5, 32, 64])
-    b_conv2 = bias_variable([64])
-    y_conv2 = tf.nn.relu(conv2d(y_pool1, W_conv2) + b_conv2)
-     
-    # 第5層 (プーリング層)
-    y_pool2 = max_pool_2x2(y_conv2)
-     
-    # 形状変更
-    y_pool2_flat = tf.reshape(y_pool2, [-1, 32 * 32 * 64])
-     
-    # 第6層 (全結合層)
-    W_fc1 = weight_variable([32 * 32 * 64, 1024])
-    b_fc1 = bias_variable([1024])
-    y_fc1 = tf.nn.relu(tf.matmul(y_pool2_flat, W_fc1) + b_fc1)
-     
-    # 第7層 (全結合層)
-    W_fc2 = weight_variable([1024, 2])
-    b_fc2 = bias_variable([2])
-    y = tf.matmul(y_fc1, W_fc2) + b_fc2
+    
+    net, end_points = vgg.vgg_16(x_image, num_classes=2, is_training=True, dropout_keep_prob=0.5,
+               spatial_squeeze=True,
+               scope='vgg_16',
+               fc_conv_padding='VALID',
+               global_pool=False)
+
+
+    ## 第2層 (畳み込み層)
+    #W_conv1 = weight_variable([5, 5, 1, 32])
+    #b_conv1 = bias_variable([32])
+    #y_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+    # 
+    ## 第3層 (プーリング層)
+    #y_pool1 = max_pool_2x2(y_conv1)
+    # 
+    ## 第4層 (畳み込み層)
+    #W_conv2 = weight_variable([5, 5, 32, 64])
+    #b_conv2 = bias_variable([64])
+    #y_conv2 = tf.nn.relu(conv2d(y_pool1, W_conv2) + b_conv2)
+    # 
+    ## 第5層 (プーリング層)
+    #y_pool2 = max_pool_2x2(y_conv2)
+    # 
+    ## 形状変更
+    #y_pool2_flat = tf.reshape(y_pool2, [-1, 32 * 32 * 64])
+    # 
+    ## 第6層 (全結合層)
+    #W_fc1 = weight_variable([32 * 32 * 64, 1024])
+    #b_fc1 = bias_variable([1024])
+    #y_fc1 = tf.nn.relu(tf.matmul(y_pool2_flat, W_fc1) + b_fc1)
+    # 
+    ## 第7層 (全結合層)
+    #W_fc2 = weight_variable([1024, 2])
+    #b_fc2 = bias_variable([2])
+    #y = tf.matmul(y_fc1, W_fc2) + b_fc2
+    y = end_points["vgg_16/fc8"]
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=tf.one_hot(labels, depth=2,dtype=tf.float32), logits=y)
-    soft = tf.nn.softmax(tf.matmul(y_fc1, W_fc2) + b_fc2)
-    pred = tf.equal(tf.argmax(soft, 1), labels)
+    soft = tf.nn.softmax(y)
+    pred = tf.equal(tf.argmax(y, 1), labels)
     accuracy = tf.reduce_mean(tf.cast(pred, tf.float32))
      
     # 損失関数を計算グラフを作成する
@@ -90,19 +104,20 @@ def model(images, labels):
 def main():
     #train_images, train_labels = read_tfrecord('03_TFrecord/train_5_TC.tfrecord')
     #train_op = model(train_images, train_labels)
+    batch_size = 16
     TC_list = glob.glob('03_TFrecord/TC/*')
     nonTC_list = glob.glob('03_TFrecord/nonTC/*')
     train_TC_dataset = tf.data.TFRecordDataset(TC_list[:13])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(1000)\
-        .batch(64)\
+        .shuffle(batch_size*4)\
+        .batch(batch_size)\
         .repeat()
     train_nonTC_dataset = tf.data.TFRecordDataset(nonTC_list[:13])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(1000)\
-        .batch(64)\
+        .shuffle(batch_size*4)\
+        .batch(batch_size)\
         .repeat()
     
     #train_dataset = tf.data.Dataset.zip((train_TC_dataset, train_nonTC_dataset))
@@ -110,14 +125,14 @@ def main():
     test_TC_dataset = tf.data.TFRecordDataset(TC_list[14:])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(1000)\
-        .batch(64)\
+        .shuffle(batch_size*4)\
+        .batch(batch_size)\
         .repeat()
     test_nonTC_dataset = tf.data.TFRecordDataset(nonTC_list[14:])\
         .map(parse_function)\
         .map(read_image)\
-        .shuffle(1000)\
-        .batch(64)\
+        .shuffle(batch_size*4)\
+        .batch(batch_size)\
         .repeat()
 
     #test_dataset = tf.data.Dataset.zip((test_nonTC_dataset, test_TC_dataset))
@@ -158,17 +173,15 @@ def main():
     with tf.Session() as sess:
         sess.run(init_op)
         for epoch in range(100):
-            sess.run(train_TC_init_op)
-            sess.run(train_nonTC_init_op)
+            sess.run([train_TC_init_op,train_nonTC_init_op])
             for step in range(300):
                 _, accuracy = sess.run([train_op,acc])
 
-            sess.run(test_TC_init_op)
-            sess.run(test_nonTC_init_op)
+            sess.run([test_TC_init_op,test_nonTC_init_op])
             test_accuracy = sess.run(acc)
             print('step: {}, accuracy: {}, test_accuracy: {}'.format(step+1+epoch*300, accuracy, test_accuracy))
 
-        saver.save(sess, "./ckpt/model.ckpt")
+            saver.save(sess, "./ckpt/model.ckpt", global_step=step+epoch*300+1)
 
 
 if __name__ == '__main__':

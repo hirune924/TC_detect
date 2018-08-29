@@ -9,16 +9,19 @@ def parse_function(example_proto):
     return parsed_features['image'], parsed_features['label']
 
 def read_image(image_raw, label):
-    image = tf.decode_raw(image_raw, tf.uint8)
+    image = tf.decode_raw(image_raw, tf.float32)
     return image, label
 
-dataset = tf.data.TFRecordDataset("03_TFrecord/train_5_TC.tfrecord")\
+dataset = tf.data.TFRecordDataset("03_TFrecord/TC/train_5_TC.tfrecord")\
         .map(parse_function)\
         .map(read_image)\
         .shuffle(4)\
         .batch(4)
 
 iterator = dataset.make_one_shot_iterator()
-next_elem = iterator.get_next()
+images, labels = iterator.get_next()
 
-print(sess.run(next_elem))
+image ,label = sess.run([images,labels])
+
+print(len(image[0]))
+print(image[0])
