@@ -8,6 +8,7 @@ import tensorflow as tf
 from PIL import Image
 import numpy as np
 import vgg
+import resnet_v1
 
 slim = tf.contrib.slim
 
