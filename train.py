@@ -8,6 +8,7 @@ import tensorflow as tf
 from PIL import Image
 import numpy as np
 import vgg
+import resnet_v1
 
 slim = tf.contrib.slim
 
@@ -45,15 +46,23 @@ def model(images, labels):
     #const1 = tf.constant(255, tf.float32)
     x_image = tf.reshape(tf.cast(images, tf.float32), [-1, 64, 64, 1])
     #x_image = tf.divide(reshape_image, const1)
-    x_image = tf.image.resize_images(x_image,[224,224])
-    #x_image = tf.image.grayscale_to_rgb(x_image)
+    x_image = tf.image.resize_images(x_image,[250,250])
+    x_image = tf.image.grayscale_to_rgb(x_image)
+    x_image = tf.map_fn(lambda img: tf.random_crop(img, [224, 224, 1]), x_image)
+    x_image = tf.map_fn(tf.image.random_flip_left_right, x_image)
 
     
-    net, end_points = vgg.vgg_16(x_image, num_classes=2, is_training=True, dropout_keep_prob=0.5,
+    #net, end_points = vgg.vgg_16(x_image, num_classes=2, is_training=True, dropout_keep_prob=0.5,
+    #           spatial_squeeze=True,
+    #           scope='vgg_16',
+    #           fc_conv_padding='VALID',
+    #           global_pool=False)
+    net, end_points = resnet_v1.resnet_v1_50(x_image, num_classes=2, is_training=True, global_pool=True,
+               output_stride=None,
                spatial_squeeze=True,
-               scope='vgg_16',
-               fc_conv_padding='VALID',
-               global_pool=False)
+               store_non_strided_activations=False,
+               reuse=None,
+               scope='resnet_v1_50')
 
 
     ## 第2層 (畳み込み層)
@@ -84,7 +93,7 @@ def model(images, labels):
     #W_fc2 = weight_variable([1024, 2])
     #b_fc2 = bias_variable([2])
     #y = tf.matmul(y_fc1, W_fc2) + b_fc2
-    y = end_points["vgg_16/fc8"]
+    y = end_points["resnet_v1_50/spatial_squeeze"]
     cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=tf.one_hot(labels, depth=2,dtype=tf.float32), logits=y)
     soft = tf.nn.softmax(y)
     pred = tf.equal(tf.argmax(y, 1), labels)
@@ -98,6 +107,7 @@ def model(images, labels):
     # (1) 損失関数に対するネットワークを構成するすべての変数の勾配を計算する。
     # (2) 勾配方向に学習率分移動して、すべての変数を更新する。
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
+    #train_step = tf.train.MomentumOptimizer(learning_rate=0.01,momentum=0.9,use_nesterov=False).minimize(cross_entropy)
     
     return train_step, accuracy
 
@@ -172,16 +182,22 @@ def main():
     step = 0
     with tf.Session() as sess:
         sess.run(init_op)
-        for epoch in range(100):
+        for epoch in range(50):
             sess.run([train_TC_init_op,train_nonTC_init_op])
-            for step in range(300):
+            train_acc = 0
+            for step in range(2000):
                 _, accuracy = sess.run([train_op,acc])
+                #print(accuracy[0])
+                train_acc += accuracy
 
-            sess.run([test_TC_init_op,test_nonTC_init_op])
-            test_accuracy = sess.run(acc)
-            print('step: {}, accuracy: {}, test_accuracy: {}'.format(step+1+epoch*300, accuracy, test_accuracy))
-
-            saver.save(sess, "./ckpt/model.ckpt", global_step=step+epoch*300+1)
+                if step % 500 == 0:
+                    sess.run([test_TC_init_op,test_nonTC_init_op])
+                    test_acc = 0
+                    for i in range(10):
+                        test_accuracy = sess.run(acc)
+                        test_acc += test_accuracy
+                    print('epoch: {}, step: {}, accuracy: {}, test_accuracy: {}'.format(epoch+1, step+1, train_acc/(step+1), test_acc/10))
+                    saver.save(sess, "./ckpt/model.ckpt", global_step=step+epoch*2000+1)
 
 
 if __name__ == '__main__':

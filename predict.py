@@ -44,12 +44,20 @@ def model(images, name):
     # ニューラルネットワークを計算グラフで作成する
     x_image = tf.reshape(tf.cast(images, tf.float32), [-1, 64, 64, 1])
     x_image = tf.image.resize_images(x_image,[224,224])
+    x_image = tf.image.grayscale_to_rgb(x_image)
 
-    net, end_points = vgg.vgg_16(x_image, num_classes=2, is_training=False, dropout_keep_prob=0.5,
+    #net, end_points = vgg.vgg_16(x_image, num_classes=2, is_training=False, dropout_keep_prob=0.5,
+    #           spatial_squeeze=True,
+    #           scope='vgg_16',
+    #           fc_conv_padding='VALID',
+    #           global_pool=False)
+    net, end_points = resnet_v1.resnet_v1_50(x_image, num_classes=2, is_training=False, global_pool=True,
+               output_stride=None,
                spatial_squeeze=True,
-               scope='vgg_16',
-               fc_conv_padding='VALID',
-               global_pool=False)
+               store_non_strided_activations=False,
+               reuse=None,
+               scope='resnet_v1_50')
+
 
 
     ## 形状変更
@@ -85,7 +93,7 @@ def model(images, name):
     #W_fc2 = weight_variable([1024, 2])
     #b_fc2 = bias_variable([2])
     #y = tf.matmul(y_fc1, W_fc2) + b_fc2
-    y = end_points["vgg_16/fc8"]
+    y = end_points["resnet_v1_50/spatial_squeeze"]
     soft = tf.nn.softmax(y)
     
     return name, soft
@@ -110,7 +118,7 @@ def main():
     submit = ""
     tmp = ""
     with tf.Session() as sess:
-        saver.restore(sess,"./ckpt/model.ckpt-29700")
+        saver.restore(sess,"./ckpt/model.ckpt-99501")
         while True:
             try:
                 name, soft = sess.run(res)
